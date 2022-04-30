@@ -10,7 +10,6 @@ import '@openzeppelin/contracts/token/ERC721/extensions/IERC721Metadata.sol';
  * @dev Interface of an ERC721A compliant contract.
  */
 interface IERC721AFull is IERC721, IERC721Metadata {
-
     // Compiler will pack this into a single 256bit word.
     struct TokenOwnership {
         // The address of the owner.

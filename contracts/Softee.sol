@@ -3,9 +3,9 @@
 pragma solidity ^0.8.0;
 pragma abicoder v2;
 
-import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "./IERC721AFull.sol";
+import '@openzeppelin/contracts/access/Ownable.sol';
+import '@openzeppelin/contracts/token/ERC20/IERC20.sol';
+import './IERC721AFull.sol';
 
 /**
  * @dev A simple soft staking contract for ERC721AQueryable.
@@ -37,7 +37,7 @@ contract Softee is Ownable {
      * Cannot set timelock to a value less than the current value.
      */
     error InvalidTimelock();
-    
+
     /**
      * @dev An entry in the vault.
      */
@@ -51,7 +51,7 @@ contract Softee is Ownable {
     }
 
     /**
-     * @dev The vault. 
+     * @dev The vault.
      */
     mapping(uint256 => Stake) private _vault;
 
@@ -73,17 +73,17 @@ contract Softee is Ownable {
     /**
      * @dev The address of the NFT contract.
      */
-    IERC721AFull public immutable nft;
+    address public immutable nft;
 
     /**
      * @dev The address of the coin contract.
      */
-    IERC20 public coin;
+    address public coin;
 
     /**
      * @dev The timestamp before which coin withdrawals are blocked.
      */
-    uint64 public coinWithdrawTimelock;
+    uint48 public coinWithdrawTimelock;
 
     /**
      * @dev Whether harvesting is turned on.
@@ -96,13 +96,13 @@ contract Softee is Ownable {
     bool public stakingOpened;
 
     /**
-     * @dev Constructor. 
-     * 
+     * @dev Constructor.
+     *
      * If the `coin_` has not yet been published, set it to the zero address.
      */
     constructor(address nft_, address coin_) {
-        nft = IERC721AFull(nft_);
-        coin = IERC20(coin_);
+        nft = nft_;
+        coin = coin_;
     }
 
     /**
@@ -111,11 +111,11 @@ contract Softee is Ownable {
      * Will reset the `distributed` to zero.
      */
     function initCoin(address addr) external onlyOwner {
-        if (address(coin) != address(0)) revert CoinInitialized();
-        coin = IERC20(addr);
+        if (coin != address(0)) revert CoinInitialized();
+        coin = addr;
     }
 
-    function setCoinWithdrawTimelock(uint64 value) external onlyOwner {
+    function setCoinWithdrawTimelock(uint48 value) external onlyOwner {
         if (value < coinWithdrawTimelock) revert InvalidTimelock();
         coinWithdrawTimelock = value;
     }
@@ -167,8 +167,8 @@ contract Softee is Ownable {
      */
     function withdrawCoin() external onlyOwner {
         if (block.timestamp < coinWithdrawTimelock) revert WithdrawsLocked();
-        uint256 amount = coin.balanceOf(address(this));
-        coin.transfer(msg.sender, amount);
+        uint256 amount = IERC20(coin).balanceOf(address(this));
+        IERC20(coin).transfer(msg.sender, amount);
     }
 
     /**
@@ -183,20 +183,20 @@ contract Softee is Ownable {
             uint256 tokenIdsLength = tokenIds.length;
             for (uint256 i; i < tokenIdsLength; ++i) {
                 uint256 tokenId = tokenIds[i];
-                IERC721AFull.TokenOwnership memory ownership = nft.explicitOwnershipOf(tokenId);
+                IERC721AFull.TokenOwnership memory ownership = IERC721AFull(nft).explicitOwnershipOf(tokenId);
 
                 // If not owned by the sender, skip.
                 if (ownership.burned || ownership.addr != msg.sender) continue;
 
+                Stake memory entry = _vault[tokenId];
                 // If already staked, skip.
-                if (_vault[tokenId].addr == ownership.addr && 
-                    _vault[tokenId].startTimestamp == ownership.startTimestamp) continue;
+                if (entry.addr == ownership.addr && entry.startTimestamp == ownership.startTimestamp) continue;
 
                 // Initialize the vault entry.
                 _vault[tokenId].addr = ownership.addr;
                 _vault[tokenId].startTimestamp = uint48(ownership.startTimestamp);
                 _vault[tokenId].lastHarvested = uint48(block.timestamp);
-            }    
+            }
         }
     }
 
@@ -205,13 +205,11 @@ contract Softee is Ownable {
      */
     function isStaked(uint256 tokenId) public view returns (bool) {
         unchecked {
-            IERC721AFull.TokenOwnership memory ownership = nft.explicitOwnershipOf(tokenId);
-            return (
-                ownership.burned == false && 
+            IERC721AFull.TokenOwnership memory ownership = IERC721AFull(nft).explicitOwnershipOf(tokenId);
+            return (ownership.burned == false &&
                 ownership.addr != address(0) &&
-                _vault[tokenId].addr == ownership.addr && 
-                _vault[tokenId].startTimestamp == ownership.startTimestamp
-            );    
+                _vault[tokenId].addr == ownership.addr &&
+                _vault[tokenId].startTimestamp == ownership.startTimestamp);
         }
     }
 
@@ -238,7 +236,7 @@ contract Softee is Ownable {
             assembly {
                 mstore(filtered, filteredIdx)
             }
-            return filtered;    
+            return filtered;
         }
     }
 
@@ -255,8 +253,8 @@ contract Softee is Ownable {
     }
 
     /**
-     * @dev Harvests the coins from the `tokenIds`. 
-     * 
+     * @dev Harvests the coins from the `tokenIds`.
+     *
      * Each of the `tokenIds` must be owned by `msg.sender`, or else it will be skipped.
      *
      * To estimate the amount of coins harvestable in web3 without sending a tx, you can use:
@@ -270,17 +268,17 @@ contract Softee is Ownable {
 
             uint256 tokenIdsLength = tokenIds.length;
             uint256 amount;
-            
+
             for (uint256 i; i < tokenIdsLength; ++i) {
                 uint256 tokenId = tokenIds[i];
-                IERC721AFull.TokenOwnership memory ownership = nft.explicitOwnershipOf(tokenId);
-                
+                IERC721AFull.TokenOwnership memory ownership = IERC721AFull(nft).explicitOwnershipOf(tokenId);
+
                 // If not owned by the sender, skip.
                 if (ownership.burned || ownership.addr != msg.sender) continue;
 
+                Stake memory entry = _vault[tokenId];
                 // If not staked, skip.
-                if (_vault[tokenId].addr != ownership.addr ||
-                    _vault[tokenId].startTimestamp != ownership.startTimestamp) continue;
+                if (entry.addr != ownership.addr || entry.startTimestamp != ownership.startTimestamp) continue;
 
                 uint256 timeDiff = uint256(_vault[tokenId].lastHarvested) - block.timestamp;
                 // If not enough time has passed, skip.
@@ -290,14 +288,14 @@ contract Softee is Ownable {
                 _vault[tokenId].lastHarvested = uint48(block.timestamp);
             }
             distributed += amount;
-            coin.transfer(msg.sender, amount);
+            IERC20(coin).transfer(msg.sender, amount);
             return amount;
         }
     }
 
     /**
      * @dev Unstake the `tokenIds`.
-     * 
+     *
      * Each of the `tokenIds` must be owned by `msg.sender`, or else it will be skipped.
      */
     function unstake(uint256[] calldata tokenIds) external {
@@ -305,15 +303,15 @@ contract Softee is Ownable {
             uint256 tokenIdsLength = tokenIds.length;
             for (uint256 i; i < tokenIdsLength; ++i) {
                 uint256 tokenId = tokenIds[i];
-                IERC721AFull.TokenOwnership memory ownership = nft.explicitOwnershipOf(tokenId);
-                
+                IERC721AFull.TokenOwnership memory ownership = IERC721AFull(nft).explicitOwnershipOf(tokenId);
+
                 // If not owned by the sender, skip.
                 if (ownership.burned || ownership.addr != msg.sender) continue;
-                
+
+                Stake memory entry = _vault[tokenId];
                 // If not staked, skip.
-                if (_vault[tokenId].addr != ownership.addr ||
-                    _vault[tokenId].startTimestamp != ownership.startTimestamp) continue;
-                
+                if (entry.addr != ownership.addr || entry.startTimestamp != ownership.startTimestamp) continue;
+
                 // Delete the vault entry.
                 delete _vault[tokenId];
             }
