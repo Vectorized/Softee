@@ -44,8 +44,10 @@ contract Softee is Ownable {
     struct Stake {
         // The address of the owner.
         address addr;
+        // The start timestamp of token ownership.
+        uint48 startTimestamp;
         // The last harvested timestamp.
-        uint64 lastHarvested;
+        uint48 lastHarvested;
     }
 
     /**
@@ -168,13 +170,6 @@ contract Softee is Ownable {
         uint256 amount = coin.balanceOf(address(this));
         coin.transfer(msg.sender, amount);
     }
-    
-    /**
-     * @dev Returns the key of the stake in the vault.
-     */
-    function _vaultKey(uint256 tokenId, uint64 startTimestamp) private pure returns (uint256) {
-        return (tokenId << 64) | startTimestamp;
-    }
 
     /**
      * @dev Stake the `tokenIds`.
@@ -183,18 +178,23 @@ contract Softee is Ownable {
      */
     function stake(uint256[] calldata tokenIds) external {
         if (!stakingOpened) revert StakingNotOpened();
+
         uint256 tokenIdsLength = tokenIds.length;
         for (uint256 i; i < tokenIdsLength; ++i) {
             uint256 tokenId = tokenIds[i];
             IERC721AFull.TokenOwnership memory ownership = nft.explicitOwnershipOf(tokenId);
+
             // If not owned by the sender, skip.
             if (ownership.burned || ownership.addr != msg.sender) continue;
-            uint256 vaultKey = _vaultKey(tokenId, ownership.startTimestamp);
+
             // If already staked, skip.
-            if (_vault[vaultKey].addr == ownership.addr) continue;
+            if (_vault[tokenId].addr == ownership.addr && 
+                _vault[tokenId].startTimestamp == ownership.startTimestamp) continue;
+
             // Initialize the vault entry.
-            _vault[vaultKey].addr = ownership.addr;
-            _vault[vaultKey].lastHarvested = uint64(block.timestamp);
+            _vault[tokenId].addr = ownership.addr;
+            _vault[tokenId].startTimestamp = uint48(ownership.startTimestamp);
+            _vault[tokenId].lastHarvested = uint48(block.timestamp);
         }
     }
 
@@ -206,7 +206,8 @@ contract Softee is Ownable {
         return (
             ownership.burned == false && 
             ownership.addr != address(0) &&
-            _vault[_vaultKey(tokenId, ownership.startTimestamp)].addr == ownership.addr
+            _vault[tokenId].addr == ownership.addr && 
+            _vault[tokenId].startTimestamp == ownership.startTimestamp
         );
     }
 
@@ -266,19 +267,20 @@ contract Softee is Ownable {
         for (uint256 i; i < tokenIdsLength; ++i) {
             uint256 tokenId = tokenIds[i];
             IERC721AFull.TokenOwnership memory ownership = nft.explicitOwnershipOf(tokenId);
+            
             // If not owned by the sender, skip.
             if (ownership.burned || ownership.addr != msg.sender) continue;
-            uint256 vaultKey = _vaultKey(tokenId, ownership.startTimestamp);
-            Stake memory entry = _vault[vaultKey];
-            // If not staked, skip.
-            if (entry.addr != ownership.addr) continue;
 
-            uint256 timeDiff = uint256(entry.lastHarvested) - block.timestamp;
+            // If not staked, skip.
+            if (_vault[tokenId].addr != ownership.addr ||
+                _vault[tokenId].startTimestamp != ownership.startTimestamp) continue;
+
+            uint256 timeDiff = uint256(_vault[tokenId].lastHarvested) - block.timestamp;
             // If not enough time has passed, skip.
             if (timeDiff < harvestTimeThresholdCached) continue;
 
             amount += harvestRateCached * timeDiff;
-            _vault[vaultKey].lastHarvested = uint64(block.timestamp);
+            _vault[tokenId].lastHarvested = uint48(block.timestamp);
         }
         distributed += amount;
         coin.transfer(msg.sender, amount);
@@ -295,13 +297,16 @@ contract Softee is Ownable {
         for (uint256 i; i < tokenIdsLength; ++i) {
             uint256 tokenId = tokenIds[i];
             IERC721AFull.TokenOwnership memory ownership = nft.explicitOwnershipOf(tokenId);
+            
             // If not owned by the sender, skip.
             if (ownership.burned || ownership.addr != msg.sender) continue;
-            uint256 vaultKey = _vaultKey(tokenId, ownership.startTimestamp);
+            
             // If not staked, skip.
-            if (_vault[vaultKey].addr != ownership.addr) continue;
+            if (_vault[tokenId].addr != ownership.addr ||
+                _vault[tokenId].startTimestamp != ownership.startTimestamp) continue;
+            
             // Delete the vault entry.
-            delete _vault[vaultKey];
+            delete _vault[tokenId];
         }
     }
 }
