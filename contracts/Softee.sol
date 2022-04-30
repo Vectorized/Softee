@@ -177,24 +177,26 @@ contract Softee is Ownable {
      * Each of the `tokenIds` must be owned by `msg.sender`, or else it will be skipped.
      */
     function stake(uint256[] calldata tokenIds) external {
-        if (!stakingOpened) revert StakingNotOpened();
+        unchecked {
+            if (!stakingOpened) revert StakingNotOpened();
 
-        uint256 tokenIdsLength = tokenIds.length;
-        for (uint256 i; i < tokenIdsLength; ++i) {
-            uint256 tokenId = tokenIds[i];
-            IERC721AFull.TokenOwnership memory ownership = nft.explicitOwnershipOf(tokenId);
+            uint256 tokenIdsLength = tokenIds.length;
+            for (uint256 i; i < tokenIdsLength; ++i) {
+                uint256 tokenId = tokenIds[i];
+                IERC721AFull.TokenOwnership memory ownership = nft.explicitOwnershipOf(tokenId);
 
-            // If not owned by the sender, skip.
-            if (ownership.burned || ownership.addr != msg.sender) continue;
+                // If not owned by the sender, skip.
+                if (ownership.burned || ownership.addr != msg.sender) continue;
 
-            // If already staked, skip.
-            if (_vault[tokenId].addr == ownership.addr && 
-                _vault[tokenId].startTimestamp == ownership.startTimestamp) continue;
+                // If already staked, skip.
+                if (_vault[tokenId].addr == ownership.addr && 
+                    _vault[tokenId].startTimestamp == ownership.startTimestamp) continue;
 
-            // Initialize the vault entry.
-            _vault[tokenId].addr = ownership.addr;
-            _vault[tokenId].startTimestamp = uint48(ownership.startTimestamp);
-            _vault[tokenId].lastHarvested = uint48(block.timestamp);
+                // Initialize the vault entry.
+                _vault[tokenId].addr = ownership.addr;
+                _vault[tokenId].startTimestamp = uint48(ownership.startTimestamp);
+                _vault[tokenId].lastHarvested = uint48(block.timestamp);
+            }    
         }
     }
 
@@ -202,13 +204,15 @@ contract Softee is Ownable {
      * @dev Returns whether the `tokenId` is staked.
      */
     function isStaked(uint256 tokenId) public view returns (bool) {
-        IERC721AFull.TokenOwnership memory ownership = nft.explicitOwnershipOf(tokenId);
-        return (
-            ownership.burned == false && 
-            ownership.addr != address(0) &&
-            _vault[tokenId].addr == ownership.addr && 
-            _vault[tokenId].startTimestamp == ownership.startTimestamp
-        );
+        unchecked {
+            IERC721AFull.TokenOwnership memory ownership = nft.explicitOwnershipOf(tokenId);
+            return (
+                ownership.burned == false && 
+                ownership.addr != address(0) &&
+                _vault[tokenId].addr == ownership.addr && 
+                _vault[tokenId].startTimestamp == ownership.startTimestamp
+            );    
+        }
     }
 
     /**
@@ -217,23 +221,25 @@ contract Softee is Ownable {
      * This function is NOT intended for on-chain calling.
      */
     function filterStaked(uint256[] calldata tokenIds) external view returns (uint256[] memory) {
-        uint256 tokenIdsLength = tokenIds.length;
-        uint256[] memory filtered = new uint256[](tokenIdsLength);
-        if (tokenIdsLength == 0) {
-            return filtered;
-        }
-        uint256 filteredIdx;
-        for (uint256 i; i < tokenIdsLength; ++i) {
-            uint256 tokenId = tokenIds[i];
-            if (isStaked(tokenId)) {
-                filtered[filteredIdx++] = tokenId;
+        unchecked {
+            uint256 tokenIdsLength = tokenIds.length;
+            uint256[] memory filtered = new uint256[](tokenIdsLength);
+            if (tokenIdsLength == 0) {
+                return filtered;
             }
+            uint256 filteredIdx;
+            for (uint256 i; i < tokenIdsLength; ++i) {
+                uint256 tokenId = tokenIds[i];
+                if (isStaked(tokenId)) {
+                    filtered[filteredIdx++] = tokenId;
+                }
+            }
+            // Downsize the array to fit.
+            assembly {
+                mstore(filtered, filteredIdx)
+            }
+            return filtered;    
         }
-        // Downsize the array to fit.
-        assembly {
-            mstore(filtered, filteredIdx)
-        }
-        return filtered;
     }
 
     /**
@@ -257,34 +263,36 @@ contract Softee is Ownable {
      * `contract.harvest.apply(undefined, tokenIds).call({ from: walletAddress }).then(...)`.
      */
     function harvest(uint256[] calldata tokenIds) external returns (uint256) {
-        if (!harvestOpened) revert HarvestNotOpened();
-        uint256 harvestTimeThresholdCached = harvestTimeThreshold;
-        uint256 harvestRateCached = harvestRate;
+        unchecked {
+            if (!harvestOpened) revert HarvestNotOpened();
+            uint256 harvestTimeThresholdCached = harvestTimeThreshold;
+            uint256 harvestRateCached = harvestRate;
 
-        uint256 tokenIdsLength = tokenIds.length;
-        uint256 amount;
-        
-        for (uint256 i; i < tokenIdsLength; ++i) {
-            uint256 tokenId = tokenIds[i];
-            IERC721AFull.TokenOwnership memory ownership = nft.explicitOwnershipOf(tokenId);
+            uint256 tokenIdsLength = tokenIds.length;
+            uint256 amount;
             
-            // If not owned by the sender, skip.
-            if (ownership.burned || ownership.addr != msg.sender) continue;
+            for (uint256 i; i < tokenIdsLength; ++i) {
+                uint256 tokenId = tokenIds[i];
+                IERC721AFull.TokenOwnership memory ownership = nft.explicitOwnershipOf(tokenId);
+                
+                // If not owned by the sender, skip.
+                if (ownership.burned || ownership.addr != msg.sender) continue;
 
-            // If not staked, skip.
-            if (_vault[tokenId].addr != ownership.addr ||
-                _vault[tokenId].startTimestamp != ownership.startTimestamp) continue;
+                // If not staked, skip.
+                if (_vault[tokenId].addr != ownership.addr ||
+                    _vault[tokenId].startTimestamp != ownership.startTimestamp) continue;
 
-            uint256 timeDiff = uint256(_vault[tokenId].lastHarvested) - block.timestamp;
-            // If not enough time has passed, skip.
-            if (timeDiff < harvestTimeThresholdCached) continue;
+                uint256 timeDiff = uint256(_vault[tokenId].lastHarvested) - block.timestamp;
+                // If not enough time has passed, skip.
+                if (timeDiff < harvestTimeThresholdCached) continue;
 
-            amount += harvestRateCached * timeDiff;
-            _vault[tokenId].lastHarvested = uint48(block.timestamp);
+                amount += harvestRateCached * timeDiff;
+                _vault[tokenId].lastHarvested = uint48(block.timestamp);
+            }
+            distributed += amount;
+            coin.transfer(msg.sender, amount);
+            return amount;
         }
-        distributed += amount;
-        coin.transfer(msg.sender, amount);
-        return amount;
     }
 
     /**
@@ -293,20 +301,22 @@ contract Softee is Ownable {
      * Each of the `tokenIds` must be owned by `msg.sender`, or else it will be skipped.
      */
     function unstake(uint256[] calldata tokenIds) external {
-        uint256 tokenIdsLength = tokenIds.length;
-        for (uint256 i; i < tokenIdsLength; ++i) {
-            uint256 tokenId = tokenIds[i];
-            IERC721AFull.TokenOwnership memory ownership = nft.explicitOwnershipOf(tokenId);
-            
-            // If not owned by the sender, skip.
-            if (ownership.burned || ownership.addr != msg.sender) continue;
-            
-            // If not staked, skip.
-            if (_vault[tokenId].addr != ownership.addr ||
-                _vault[tokenId].startTimestamp != ownership.startTimestamp) continue;
-            
-            // Delete the vault entry.
-            delete _vault[tokenId];
+        unchecked {
+            uint256 tokenIdsLength = tokenIds.length;
+            for (uint256 i; i < tokenIdsLength; ++i) {
+                uint256 tokenId = tokenIds[i];
+                IERC721AFull.TokenOwnership memory ownership = nft.explicitOwnershipOf(tokenId);
+                
+                // If not owned by the sender, skip.
+                if (ownership.burned || ownership.addr != msg.sender) continue;
+                
+                // If not staked, skip.
+                if (_vault[tokenId].addr != ownership.addr ||
+                    _vault[tokenId].startTimestamp != ownership.startTimestamp) continue;
+                
+                // Delete the vault entry.
+                delete _vault[tokenId];
+            }
         }
     }
 }
